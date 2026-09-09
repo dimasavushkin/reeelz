@@ -15,7 +15,11 @@ import kotlinx.coroutines.flow.*
 class EditorViewModel(application: Application) : AndroidViewModel(application) {
     private val mutableState = MutableStateFlow(EditorUiState())
     val state = mutableState.asStateFlow()
-    val playback = EditorPlayback(application) { message -> mutableState.update { it.copy(message = message) } }
+    val playback = EditorPlayback(application,
+        onError = { message -> mutableState.update { it.copy(message = message) } },
+        onClipChanged = { index -> mutableState.update { current ->
+            if (current.clips.isEmpty() || current.selectedClipIndex == index) current else current.withSelectedClip(index)
+        } })
     private val exporter = ExportEngine(application)
     private var exportJob: Job? = null
     private val mutableExportedVideo = MutableStateFlow<Uri?>(null)
@@ -336,12 +340,30 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         val next = current.copy(clips = clips, selectedClipIndex = to).withSelectedClip(to)
         record(next, "moveClip"); mutableState.value = next; finishEdit(); playback.load(next); scheduleSave()
     }
-    fun export() {
-        if (state.value.source == null || state.value.exporting || draftBusy.value) return
-        if (state.value.timelineClips().size > 1) {
-            mutableState.update { it.copy(message = "Общий экспорт нескольких клипов будет добавлен на следующем этапе") }
+    fun splitAt(positionMs: Long) {
+        val current = state.value
+        val clips = current.timelineClips().toMutableList()
+        if (draftBusy.value || current.exporting || clips.size >= 10 || clips.isEmpty()) return
+        val point = current.timelinePosition(positionMs)
+        val clip = clips[point.clipIndex]
+        val minimum = 100L
+        if (point.localMs < minimum || clip.outputDurationMs - point.localMs < minimum) {
+            mutableState.update { it.copy(message = "Поставьте курсор минимум в 0,1 с от края клипа") }
             return
         }
+        finishEdit()
+        val sourcePoint = clip.startMs + point.localMs
+        val left = clip.copy(id = java.util.UUID.randomUUID().toString(), endMs = sourcePoint)
+        val right = clip.copy(id = java.util.UUID.randomUUID().toString(), startMs = sourcePoint)
+        clips.removeAt(point.clipIndex)
+        clips.add(point.clipIndex, left)
+        clips.add(point.clipIndex + 1, right)
+        val next = current.copy(clips = clips, selectedClipIndex = point.clipIndex + 1)
+            .withSelectedClip(point.clipIndex + 1).copy(message = null)
+        record(next, "splitClip"); mutableState.value = next; finishEdit(); playback.load(next); scheduleSave()
+    }
+    fun export() {
+        if (state.value.source == null || state.value.exporting || draftBusy.value) return
         playback.pause()
         playback.stopForExport()
         val snapshot = state.value

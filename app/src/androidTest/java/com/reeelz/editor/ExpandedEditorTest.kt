@@ -118,7 +118,7 @@ class ExpandedEditorTest {
         } finally { root.deleteRecursively() }
     }
 
-    @Test fun realExportIncludesLoopedMusicAndTimedTextAfterTrim() = runBlocking<Unit> {
+    @Test fun realMultiClipExportIncludesLoopedMusicAndGlobalTimedText() = runBlocking<Unit> {
         val app = InstrumentationRegistry.getInstrumentation().targetContext
         val root = File(app.cacheDir, "media-test-${UUID.randomUUID()}").apply { mkdirs() }
         val context = object : ContextWrapper(app) {
@@ -128,10 +128,15 @@ class ExpandedEditorTest {
         }
         var output: Uri? = null
         try {
-            val video = File(root, "source.mp4").also { MediaFixtures.video(it) }
+            val firstVideo = File(root, "source-first.mp4").also { MediaFixtures.video(it, 2) }
+            val secondVideo = File(root, "source-second.mp4").also { MediaFixtures.video(it, 2) }
             val music = File(root, "tone.wav").also(MediaFixtures::music)
-            val state = EditorUiState(source = VideoSource(Uri.fromFile(video), 4000, 320, 240), startMs = 1000, endMs = 3000,
-                crop = CropParameters(rotation = 90),
+            val first = VideoClip("first", VideoSource(Uri.fromFile(firstVideo), 2000, 320, 240), 500, 1500,
+                CropParameters(rotation = 90))
+            val second = VideoClip("second", VideoSource(Uri.fromFile(secondVideo), 2000, 320, 240), 500, 1500,
+                CropParameters(zoom = 1.2f, x = .2f, rotation = 180))
+            val state = EditorUiState(source = first.source, startMs = first.startMs, endMs = first.endMs,
+                crop = first.crop, clips = listOf(first, second),
                 text = TextParameters("TEST", 120f, 0xFFFFFF00.toInt(), 0f, 0f, startMs = 500, endMs = 1500),
                 extraTexts = listOf(TextParameters("SECOND", 64f, 0xFFFF80AB.toInt(), y = .6f, startMs = 1500)),
                 audio = AudioParameters(originalVolume = 0f, musicUri = Uri.fromFile(music).toString(), musicDurationMs = 500, musicVolume = .25f))

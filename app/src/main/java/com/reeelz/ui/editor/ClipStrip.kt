@@ -2,6 +2,7 @@ package com.reeelz.ui.editor
 
 import android.media.MediaMetadataRetriever
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -14,19 +15,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.reeelz.editor.VideoClip
+import com.reeelz.editor.outputDurationMs
 import com.reeelz.ui.theme.Divider
 import com.reeelz.ui.theme.Muted
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 @Composable
-fun ClipStrip(clips: List<VideoClip>, selected: Int, enabled: Boolean, select: (Int) -> Unit,
-              add: () -> Unit, move: (Int) -> Unit, duplicate: () -> Unit, remove: () -> Unit) {
+fun ClipStrip(clips: List<VideoClip>, selected: Int, positionMs: Long, enabled: Boolean, select: (Int) -> Unit,
+              seekTimeline: (Long) -> Unit, split: (Long) -> Unit, add: () -> Unit,
+              move: (Int) -> Unit, duplicate: () -> Unit, remove: () -> Unit) {
+    val total = clips.sumOf(VideoClip::outputDurationMs).coerceAtLeast(1L)
     Column(Modifier.fillMaxWidth().padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Клипы · ${clips.size}/10", style = MaterialTheme.typography.titleMedium)
@@ -35,6 +41,24 @@ fun ClipStrip(clips: List<VideoClip>, selected: Int, enabled: Boolean, select: (
         }
         LazyRow(contentPadding = PaddingValues(horizontal = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             itemsIndexed(clips, key = { _, clip -> clip.id }) { index, clip -> ClipThumbnail(clip, index, index == selected, enabled) { select(index) } }
+        }
+        Canvas(Modifier.fillMaxWidth().padding(horizontal = 18.dp).height(18.dp)) {
+            var left = 0f
+            clips.forEachIndexed { index, clip ->
+                val width = size.width * clip.outputDurationMs / total
+                drawRect(if (index == selected) Color.White else Color(0xFF565B66), Offset(left, 2.dp.toPx()), Size(width.coerceAtLeast(1f), 14.dp.toPx()))
+                if (index > 0) drawLine(Color.Black, Offset(left, 2.dp.toPx()), Offset(left, 16.dp.toPx()), 2.dp.toPx())
+                left += width
+            }
+            val cursor = size.width * positionMs.coerceIn(0, total) / total
+            drawLine(Color.White, Offset(cursor, 0f), Offset(cursor, size.height), 2.dp.toPx())
+        }
+        Slider(positionMs.toFloat().coerceIn(0f, total.toFloat()), { seekTimeline(it.toLong()) },
+            valueRange = 0f..total.toFloat(), enabled = enabled, modifier = Modifier.padding(horizontal = 14.dp))
+        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("${timelineLabel(positionMs)} / ${timelineLabel(total)}", color = Muted, style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.weight(1f))
+            OutlinedButton(onClick = { split(positionMs) }, enabled = enabled && clips.size < 10) { Text("✂ Разделить") }
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), horizontalArrangement = Arrangement.Center) {
             TextButton(onClick = { move(-1) }, enabled = enabled && selected > 0) { Text("← Левее") }
@@ -46,6 +70,11 @@ fun ClipStrip(clips: List<VideoClip>, selected: Int, enabled: Boolean, select: (
         }
         HorizontalDivider(color = Divider)
     }
+}
+
+private fun timelineLabel(ms: Long): String {
+    val seconds = ms.coerceAtLeast(0) / 1000
+    return "%02d:%02d".format(seconds / 60, seconds % 60)
 }
 
 @Composable

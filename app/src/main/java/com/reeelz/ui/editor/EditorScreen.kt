@@ -43,6 +43,7 @@ fun EditorScreen(vm: EditorViewModel, state: EditorUiState, playing: Boolean, bu
     val history by vm.historyAvailability.collectAsState()
     val exportedVideo by vm.exportedVideo.collectAsState()
     val position by vm.playback.positionMs.collectAsState()
+    val sourcePosition by vm.playback.sourcePositionMs.collectAsState()
     val clipPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { uris ->
         vm.addClips(uris)
     }
@@ -69,7 +70,7 @@ fun EditorScreen(vm: EditorViewModel, state: EditorUiState, playing: Boolean, bu
                     modifier = Modifier.fillMaxSize(),
                 )
                 if (tab == 1) CropGestureLayer(state.crop, enabled, vm::crop)
-                if (tab == 2 && enabled && state.activeText().visibleAt(position - state.startMs)) {
+                if (tab == 2 && enabled && state.activeText().visibleAt(position)) {
                     CaptionDragLayer(state.activeText(), vm::moveText, vm::finishEdit, true)
                 }
             }
@@ -77,7 +78,7 @@ fun EditorScreen(vm: EditorViewModel, state: EditorUiState, playing: Boolean, bu
                 TextButton(onClick = vm.playback::toggle, enabled = enabled,
                     contentPadding = PaddingValues(4.dp)) { Text(if (playing) "Ⅱ" else "▶", style = MaterialTheme.typography.titleLarge) }
                 Spacer(Modifier.weight(1f))
-                Text("${timeLabel(position - state.startMs)}  /  ${timeLabel(state.endMs - state.startMs)}",
+                Text("${timeLabel(position)}  /  ${timeLabel(state.totalDurationMs())}",
                     style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.weight(1f))
                 Text("⌗", color = Muted, style = MaterialTheme.typography.titleLarge)
@@ -91,7 +92,8 @@ fun EditorScreen(vm: EditorViewModel, state: EditorUiState, playing: Boolean, bu
             }
             Surface(Modifier.fillMaxWidth().weight(1f), color = SurfaceRaised, shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)) {
                 Column {
-                ClipStrip(state.timelineClips(), state.selectedClipIndex, enabled, vm::selectClip,
+                ClipStrip(state.timelineClips(), state.selectedClipIndex, position, enabled, vm::selectClip,
+                    vm.playback::seekTimeline, vm::splitAt,
                     { clipPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) },
                     vm::moveSelectedClip, vm::duplicateSelectedClip, vm::removeSelectedClip)
                 TabRow(selectedTabIndex = tab, containerColor = Color.Transparent, contentColor = Accent, divider = {}) {
@@ -105,7 +107,7 @@ fun EditorScreen(vm: EditorViewModel, state: EditorUiState, playing: Boolean, bu
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     when (tab) {
                         0 -> {
-                            TrimControls(state, position, enabled, vm.playback::seek, vm::trim, vm::applyTrim)
+                            TrimControls(state, sourcePosition, enabled, vm.playback::seek, vm::trim, vm::applyTrim)
                         }
                         1 -> {
                             Text("Разведите пальцы для масштаба, перетащите видео для позиции.",

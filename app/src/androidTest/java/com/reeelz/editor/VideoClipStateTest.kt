@@ -26,4 +26,19 @@ class VideoClipStateTest {
         assertEquals(1, state.timelineClips().size)
         assertEquals("legacy", state.timelineClips().single().id)
     }
+
+    @Test fun globalTimelineMapsClipsAndLocalizesCaptions() {
+        val first = clip("first", 2000).copy(startMs = 500, endMs = 1500)
+        val second = clip("second", 3000).copy(startMs = 1000, endMs = 2500)
+        val state = EditorUiState(source = first.source, startMs = first.startMs, endMs = first.endMs,
+            clips = listOf(first, second), text = TextParameters("Across", startMs = 800, endMs = 1700))
+        assertEquals(2500L, state.totalDurationMs())
+        assertEquals(TimelinePosition(0, 999), state.timelinePosition(999))
+        assertEquals(TimelinePosition(1, 0), state.timelinePosition(1000))
+        assertEquals(1000L, state.timelineStartMs(1))
+        assertEquals(800L, state.forTimelineClip(0).text.startMs)
+        assertEquals(1000L, state.forTimelineClip(0).text.endMs)
+        assertEquals(0L, state.forTimelineClip(1).text.startMs)
+        assertEquals(700L, state.forTimelineClip(1).text.endMs)
+    }
 }

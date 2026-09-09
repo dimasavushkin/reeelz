@@ -30,7 +30,7 @@ fun CaptionControls(vm: EditorViewModel, state: EditorUiState, enabled: Boolean)
         Text("Тёмный фон надписи")
         Switch(checked = text.background, onCheckedChange = { vm.finishEdit(); vm.text(text.copy(background = it)); vm.finishEdit() }, enabled = enabled)
     }
-    val duration = (state.endMs - state.startMs).coerceAtLeast(1)
+    val duration = state.totalDurationMs().coerceAtLeast(1)
     val begin = text.startMs.coerceIn(0, duration - 1)
     val end = text.endMs.coerceIn(begin + 1, duration)
     Text("Показ: %.2f — %.2f сек".format(begin / 1000f, end / 1000f))

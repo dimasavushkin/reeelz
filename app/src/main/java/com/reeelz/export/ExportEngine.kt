@@ -8,9 +8,10 @@ import android.provider.MediaStore
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.transformer.*
-import com.reeelz.editor.EditEffects
 import com.reeelz.editor.EditorUiState
 import com.reeelz.editor.StorageChecks
+import com.reeelz.editor.timelineClips
+import com.reeelz.editor.totalDurationMs
 import java.util.UUID
 import kotlinx.coroutines.*
 import java.io.File
@@ -20,7 +21,7 @@ import kotlin.coroutines.resumeWithException
 @UnstableApi
 class ExportEngine(private val context: Context) {
     suspend fun export(state: EditorUiState, progress: (Int) -> Unit): Uri {
-        require(state.source != null && state.endMs > state.startMs)
+        require(state.timelineClips().isNotEmpty() && state.totalDurationMs() > 0)
         withContext(Dispatchers.IO) { StorageChecks.requireSpace(context.cacheDir) }
         val file = File.createTempFile("reeelz-", ".mp4", context.cacheDir)
         file.delete() // Transformer requires a fresh output path.

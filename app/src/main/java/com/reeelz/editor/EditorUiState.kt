@@ -23,6 +23,8 @@ data class VideoClip(
     val endMs: Long = source.durationMs,
     val crop: CropParameters = CropParameters(),
 )
+
+val VideoClip.outputDurationMs: Long get() = (endMs - startMs).coerceAtLeast(0)
 data class EditorUiState(
     val projectId: String? = null,
     val projectName: String = "Новый ролик",
@@ -61,6 +63,45 @@ fun EditorUiState.withActiveClip(updated: VideoClip): EditorUiState {
     val selected = selectedClipIndex.coerceIn(0, clips.lastIndex)
     return copy(clips = clips.mapIndexed { index, clip -> if (index == selected) updated else clip },
         source = updated.source, startMs = updated.startMs, endMs = updated.endMs, crop = updated.crop)
+}
+
+fun EditorUiState.totalDurationMs(): Long = timelineClips().sumOf(VideoClip::outputDurationMs)
+
+fun EditorUiState.timelineStartMs(index: Int): Long =
+    timelineClips().take(index.coerceAtLeast(0)).sumOf(VideoClip::outputDurationMs)
+
+data class TimelinePosition(val clipIndex: Int, val localMs: Long)
+
+fun EditorUiState.timelinePosition(positionMs: Long): TimelinePosition {
+    val items = timelineClips()
+    require(items.isNotEmpty())
+    val bounded = positionMs.coerceIn(0, (totalDurationMs() - 1).coerceAtLeast(0))
+    var offset = 0L
+    items.forEachIndexed { index, clip ->
+        val next = offset + clip.outputDurationMs
+        if (bounded < next || index == items.lastIndex) return TimelinePosition(index, (bounded - offset).coerceAtLeast(0))
+        offset = next
+    }
+    return TimelinePosition(items.lastIndex, 0)
+}
+
+/** A clip-shaped state with project captions translated from global to local time. */
+fun EditorUiState.forTimelineClip(index: Int): EditorUiState {
+    val items = timelineClips()
+    val selected = index.coerceIn(0, items.lastIndex)
+    val clip = items[selected]
+    val offset = timelineStartMs(selected)
+    val duration = clip.outputDurationMs
+    fun TextParameters.local(): TextParameters {
+        val from = maxOf(startMs, offset)
+        val to = minOf(endMs, offset + duration)
+        return if (from >= to) copy(content = "") else copy(startMs = from - offset, endMs = to - offset)
+    }
+    val localized = allTexts().map { it.local() }
+    return copy(
+        source = clip.source, startMs = clip.startMs, endMs = clip.endMs, crop = clip.crop,
+        selectedClipIndex = selected, text = localized.first(), extraTexts = localized.drop(1),
+    )
 }
 
 data class CropBounds(val left: Float, val right: Float, val bottom: Float, val top: Float)
