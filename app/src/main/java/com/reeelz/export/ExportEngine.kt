@@ -10,6 +10,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.transformer.*
 import com.reeelz.editor.EditEffects
 import com.reeelz.editor.EditorUiState
+import com.reeelz.editor.StorageChecks
+import java.util.UUID
 import kotlinx.coroutines.*
 import java.io.File
 import kotlin.coroutines.resume
@@ -18,6 +20,8 @@ import kotlin.coroutines.resumeWithException
 @UnstableApi
 class ExportEngine(private val context: Context) {
     suspend fun export(state: EditorUiState, progress: (Int) -> Unit): Uri {
+        require(state.source != null && state.endMs > state.startMs)
+        withContext(Dispatchers.IO) { StorageChecks.requireSpace(context.cacheDir) }
         val file = File.createTempFile("reeelz-", ".mp4", context.cacheDir)
         file.delete() // Transformer requires a fresh output path.
         try {
@@ -45,15 +49,17 @@ class ExportEngine(private val context: Context) {
                                     if (continuation.isActive) continuation.resumeWithException(exportException)
                                 }
                             })
-                            continuation.invokeOnCancellation { transformer.cancel() }
-                            val edited = EditedMediaItem.Builder(EditEffects.item(state))
-                                .setEffects(Effects(emptyList(), EditEffects.video(state))).build()
-                            transformer.start(edited, file.absolutePath)
+                            transformer.start(ExportComposition.create(state), file.absolutePath)
                         }
-                    } finally { poll.cancel() }
+                    } finally {
+                        poll.cancel()
+                        // Cancellation can originate on any thread; Media3 must stop on Main.
+                        withContext(NonCancellable + Dispatchers.Main.immediate) { transformer.cancel() }
+                    }
                 }
             }
             return withContext(Dispatchers.IO) {
+                StorageChecks.requireSpace(context.filesDir, file.length())
                 MediaMetadataRetriever().use { reader ->
                     reader.setDataSource(file.absolutePath)
                     val width = reader.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull()
@@ -64,8 +70,11 @@ class ExportEngine(private val context: Context) {
                     check(portraitWidth == 1080 && portraitHeight == 1920) { "Кодек не создал видео 1080×1920" }
                 }
                 val resolver = context.contentResolver
+                val name = "Reeelz_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(8)}.mp4"
+                val recovery = ExportRecovery(context)
+                recovery.begin(name)
                 val values = ContentValues().apply {
-                    put(MediaStore.Video.Media.DISPLAY_NAME, "Reeelz_${System.currentTimeMillis()}.mp4")
+                    put(MediaStore.Video.Media.DISPLAY_NAME, name)
                     put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
                     put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/Reeelz")
                     put(MediaStore.Video.Media.IS_PENDING, 1)
@@ -85,9 +94,11 @@ class ExportEngine(private val context: Context) {
                     }
                     ensureActive()
                     check(resolver.update(uri, ContentValues().apply { put(MediaStore.Video.Media.IS_PENDING, 0) }, null, null) == 1)
+                    recovery.finish()
                     uri
                 } catch (error: Throwable) {
                     resolver.delete(uri, null, null)
+                    recovery.finish()
                     throw error
                 }
             }

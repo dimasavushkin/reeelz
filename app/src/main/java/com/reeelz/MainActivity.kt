@@ -1,44 +1,68 @@
 package com.reeelz
 
 import android.os.Bundle
+import android.content.ActivityNotFoundException
+import com.reeelz.export.ExportActions
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
-import androidx.compose.ui.input.pointer.pointerInput
-import com.reeelz.ui.editor.TextControls
+
+
+
+
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+
+
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.Color
+
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
+
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.ui.PlayerView
+
 import com.reeelz.editor.EditorViewModel
+import com.reeelz.ui.ReeelzSplash
+import com.reeelz.ui.theme.ReeelzTheme
+import kotlinx.coroutines.delay
 
 @UnstableApi
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+        )
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme()) {
+            ReeelzTheme {
+                var showSplash by rememberSaveable { mutableStateOf(true) }
+                LaunchedEffect(Unit) { delay(850); showSplash = false }
                 val vm: EditorViewModel = viewModel()
                 val state by vm.state.collectAsStateWithLifecycle()
+                val exportedVideo by vm.exportedVideo.collectAsStateWithLifecycle()
+                val resultVisible by vm.resultVisible.collectAsStateWithLifecycle()
+                val actionScope = rememberCoroutineScope()
+                var openingExport by remember { mutableStateOf(false) }
+
+                val draftBusy by vm.draftBusy.collectAsStateWithLifecycle()
+                val saveStatus by vm.saveStatus.collectAsStateWithLifecycle()
+
                 val playing by vm.playback.isPlaying.collectAsStateWithLifecycle()
                 val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
                     uri?.let(vm::open)
@@ -46,7 +70,7 @@ class MainActivity : ComponentActivity() {
                 val owner = LocalLifecycleOwner.current
                 DisposableEffect(owner, vm) {
                     val observer = LifecycleEventObserver { _, event ->
-                        if (event == Lifecycle.Event.ON_STOP) vm.playback.pause()
+                        if (event == Lifecycle.Event.ON_STOP) { vm.playback.pause(); vm.flushDraft() }
                     }
                     owner.lifecycle.addObserver(observer)
                     onDispose { owner.lifecycle.removeObserver(observer) }
@@ -57,73 +81,25 @@ class MainActivity : ComponentActivity() {
                 }
                 BackHandler(state.source != null) { vm.home() }
                 Surface(Modifier.fillMaxSize()) {
-                    BoxWithConstraints(Modifier.safeDrawingPadding().imePadding().padding(16.dp)) {
-                    val canvasWidth = minOf(220.dp, maxHeight * 0.45f * 9f / 16f)
+                    if (showSplash) ReeelzSplash() else Box(Modifier.fillMaxSize().imePadding()) {
                     Column(Modifier.fillMaxSize(),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (state.source == null) {
-                            Spacer(Modifier.height(80.dp))
-                            Text("Reeelz", style = MaterialTheme.typography.headlineLarge)
-                            Text("Один ролик. Вертикальный кадр.")
-                            Button(onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) }, enabled = !state.loading) {
-                                Text("Новый ролик")
-                            }
-                            if (state.loading) CircularProgressIndicator()
+                            com.reeelz.ui.ProjectsHome(
+                                projects = vm.projects.collectAsStateWithLifecycle().value,
+                                busy = state.loading || draftBusy,
+                                create = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) },
+                                open = vm::restoreDraft, rename = vm::renameProject, delete = vm::deleteDraft,
+                                lastExport = if (exportedVideo != null) vm::showExportResult else null,
+                            )
                         } else {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                TextButton(onClick = vm::home, enabled = !state.exporting) { Text("← Главная") }
-                                Text("Редактор", style = MaterialTheme.typography.titleLarge)
-                            }
-                            Box(Modifier.width(canvasWidth).aspectRatio(9f / 16f)) {
-                            AndroidView(
-                                factory = { context -> PlayerView(context).apply { useController = false; player = vm.playback.player } },
-                                update = { it.player = vm.playback.player },
-                                onRelease = { it.player = null },
-                                modifier = Modifier.fillMaxSize().background(Color.Black),
-                            )
-                            if (state.text.content.isNotBlank() && !state.exporting) {
-                                Box(Modifier.matchParentSize().pointerInput(vm) {
-                                    detectDragGesturesAfterLongPress { change, drag ->
-                                        change.consume()
-                                        vm.moveText(2f * drag.x / size.width, 2f * drag.y / size.height)
-                                    }
-                                })
-                            }
-                            }
-                            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = vm.playback::toggle, enabled = !state.exporting) { Text(if (playing) "Пауза" else "Воспроизвести") }
-                            Text("Обрезка: %.2f — %.2f сек".format(state.startMs / 1000f, state.endMs / 1000f))
-                            RangeSlider(
-                                value = state.startMs.toFloat()..state.endMs.toFloat(),
-                                onValueChange = { vm.trim(it.start.toLong(), it.endInclusive.toLong()) },
-                                onValueChangeFinished = vm::applyTrim,
-                                valueRange = 0f..state.source!!.durationMs.toFloat(),
-                                enabled = !state.exporting,
-                            )
-                            Text("Масштаб · %.2f×".format(state.crop.zoom))
-                            Slider(state.crop.zoom, { vm.crop(state.crop.copy(zoom = it)) }, valueRange = 1f..4f, enabled = !state.exporting)
-                            Text("Положение кадра по горизонтали")
-                            Slider(state.crop.x, { vm.crop(state.crop.copy(x = it)) }, valueRange = -1f..1f, enabled = !state.exporting)
-                            Text("Положение кадра по вертикали")
-                            Slider(state.crop.y, { vm.crop(state.crop.copy(y = it)) }, valueRange = -1f..1f, enabled = !state.exporting)
-                            HorizontalDivider()
-                            TextControls(state.text, !state.exporting, vm::text)
-                            if (state.exporting) {
-                                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                                Text("Экспорт ${state.progress}% · оставьте приложение открытым")
-                                TextButton(onClick = vm::cancelExport) { Text("Отменить") }
-                            } else {
-                                Button(onClick = vm::export) { Text("Экспорт MP4 · 1080 × 1920") }
-                            }
-                            }
+                            com.reeelz.ui.editor.EditorScreen(vm, state, playing, draftBusy, saveStatus)
                         }
                     }
-                    }
                 }
-                state.message?.let { message ->
+                }
+                if (!showSplash) state.message?.let { message ->
                     AlertDialog(
                         onDismissRequest = vm::dismissMessage,
                         title = { Text("Reeelz") },
@@ -133,7 +109,44 @@ class MainActivity : ComponentActivity() {
                         },
                     )
                 }
+                if (!showSplash && resultVisible && exportedVideo != null && state.message == null) {
+                    val uri = requireNotNull(exportedVideo)
+                    val launchAction: (Boolean) -> Unit = { share ->
+                        openingExport = true
+                        vm.playback.pause()
+                        actionScope.launch {
+                            try {
+                                ExportActions.open(this@MainActivity, uri, share)
+                                vm.hideExportResult()
+                            } catch (e: CancellationException) { throw e }
+                            catch (e: ActivityNotFoundException) {
+                                vm.exportActionError("Нет приложения для открытия MP4. Ролик сохранён в Movies/Reeelz.")
+                            } catch (e: Exception) {
+                                vm.exportActionError("Не удалось открыть ролик. Возможно, файл удалён из галереи. Можно экспортировать заново.")
+                            } finally { openingExport = false }
+                        }
+                    }
+                    AlertDialog(
+                        onDismissRequest = vm::hideExportResult,
+                        title = { Text("Ролик сохранён") },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("MP4 · 1080 × 1920\nГалерея → Movies/Reeelz")
+                                Text("Это последний готовый файл. Новые правки появятся в нём после повторного экспорта.")
+                                Button(onClick = { launchAction(false) }, enabled = !openingExport, modifier = Modifier.fillMaxWidth()) { Text("Посмотреть") }
+                                OutlinedButton(onClick = { launchAction(true) }, enabled = !openingExport, modifier = Modifier.fillMaxWidth()) { Text("Поделиться") }
+                            }
+                        },
+                        confirmButton = { TextButton(onClick = vm::hideExportResult) { Text("Вернуться к редактору") } },
+                    )
+                }
+
             }
         }
     }
 }
+
+
+
+
+

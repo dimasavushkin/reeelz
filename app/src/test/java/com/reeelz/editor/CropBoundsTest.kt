@@ -14,4 +14,11 @@ class CropBoundsTest {
             }
         }
     }
+
+    @Test fun quarterTurnUsesRotatedSourceDimensions() {
+        val rotated = cropBounds(1920, 1080, CropParameters(rotation = 90))
+        assertEquals(9f / 16f, (rotated.right - rotated.left) * 1080 / ((rotated.top - rotated.bottom) * 1920), 0.00001f)
+        assertEquals(270, CropParameters(rotation = -90).normalized().rotation)
+        assertEquals(90, CropParameters(rotation = 450).normalized().rotation)
+    }
 }

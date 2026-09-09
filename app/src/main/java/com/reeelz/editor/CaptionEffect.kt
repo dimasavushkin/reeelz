@@ -11,10 +11,11 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.BitmapOverlay
 import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.StaticOverlaySettings
+import androidx.media3.common.OverlaySettings
 
 @UnstableApi
 object CaptionEffect {
-    fun create(parameters: TextParameters): OverlayEffect {
+    fun layout(parameters: TextParameters): StaticLayout {
         val text = parameters.normalized()
         val paint = TextPaint(TextPaint.ANTI_ALIAS_FLAG).apply {
             color = text.color
@@ -24,18 +25,35 @@ object CaptionEffect {
         }
         fun layout() = StaticLayout.Builder.obtain(text.content, 0, text.content.length, paint,
             kotlin.math.ceil(Layout.getDesiredWidth(text.content, paint).toDouble()).toInt().coerceIn(1, 936))
-            .setAlignment(Layout.Alignment.ALIGN_CENTER).setIncludePad(true).build()
+            .setAlignment(when (text.alignment) { 0 -> Layout.Alignment.ALIGN_NORMAL; 2 -> Layout.Alignment.ALIGN_OPPOSITE; else -> Layout.Alignment.ALIGN_CENTER }).setIncludePad(true).build()
         var layout = layout()
         // Long captions wrap and shrink to fit instead of disappearing outside the canvas.
-        while (layout.height > 1500 && paint.textSize > 1f) {
+        while (layout.height > 600 && paint.textSize > 1f) {
             paint.textSize *= 0.9f
             layout = layout()
         }
+        return layout
+    }
+
+    fun overlay(parameters: TextParameters): BitmapOverlay {
+        val text = parameters.normalized()
+        val layout = layout(text)
         val bitmap = Bitmap.createBitmap(layout.width + 24, layout.height + 24, Bitmap.Config.ARGB_8888)
-        Canvas(bitmap).apply { translate(12f, 12f); layout.draw(this) }
+        Canvas(bitmap).apply {
+            if (text.background) drawColor(0xB3000000.toInt())
+            translate(12f, 12f); layout.draw(this)
+        }
         val settings = StaticOverlaySettings.Builder()
             .setBackgroundFrameAnchor(textAnchor(text.x, bitmap.width, 1080), -textAnchor(text.y, bitmap.height, 1920))
             .build()
-        return OverlayEffect(listOf(BitmapOverlay.createStaticBitmapOverlay(bitmap, settings)))
+        val hidden = StaticOverlaySettings.Builder().setAlphaScale(0f).build()
+        return object : BitmapOverlay() {
+            override fun getBitmap(presentationTimeUs: Long) = bitmap
+            override fun getOverlaySettings(presentationTimeUs: Long): OverlaySettings =
+                if (text.visibleAt(presentationTimeUs / 1000)) settings else hidden
+            override fun release() { super.release(); bitmap.recycle() }
+        }
     }
+    fun create(parameters: TextParameters) = OverlayEffect(listOf(overlay(parameters)))
 }
+
