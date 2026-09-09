@@ -43,7 +43,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     private val mutableHistory = MutableStateFlow(false to false)
     val historyAvailability = mutableHistory.asStateFlow()
     private var typingJob: Job? = null
-    private fun EditorUiState.values() = EditValues(startMs, endMs, crop, text, extraTexts, audio)
+    private fun EditorUiState.values() = EditValues(startMs, endMs, crop, text, extraTexts, audio, clips, selectedClipIndex)
     private fun publishHistory() { mutableHistory.value = history.canUndo to history.canRedo }
     fun finishEdit() { typingJob?.cancel(); history.finish() }
     private fun resetHistory() { finishEdit(); history.clear(); publishHistory() }
@@ -57,7 +57,12 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         finishEdit()
         val edit = if (redo) history.redo(state.value.values()) else history.undo(state.value.values())
         if (edit == null) return
-        mutableState.update { it.copy(startMs = edit.startMs, endMs = edit.endMs, crop = edit.crop, text = edit.text, extraTexts = edit.extraTexts, audio = edit.audio, selectedText = state.value.selectedText.coerceAtMost(edit.extraTexts.size), message = null) }
+        mutableState.update {
+            val restored = it.copy(startMs = edit.startMs, endMs = edit.endMs, crop = edit.crop, text = edit.text,
+                extraTexts = edit.extraTexts, audio = edit.audio, clips = edit.clips,
+                selectedClipIndex = edit.selectedClipIndex, selectedText = it.selectedText.coerceAtMost(edit.extraTexts.size), message = null)
+            if (restored.clips.isEmpty()) restored else restored.withSelectedClip(restored.selectedClipIndex)
+        }
         publishHistory()
         playback.load(state.value)
         scheduleSave()
@@ -132,12 +137,30 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     fun dismissMessage() { mutableState.update { it.copy(message = null) } }
 
-    fun open(uri: Uri) {
+    fun open(uri: Uri) = open(listOf(uri))
+
+    fun open(uris: List<Uri>) {
         if (state.value.loading || state.value.exporting || draftBusy.value) return
+        if (uris.isEmpty()) return
         mutableState.value = EditorUiState(loading = true)
         viewModelScope.launch {
             try {
-                val source = withContext(Dispatchers.IO) {
+                val sources = uris.take(10).map { readSource(it) }
+                val clips = sources.map { VideoClip(java.util.UUID.randomUUID().toString(), it) }
+                val source = clips.first().source
+                val initial = EditorUiState(source = source, endMs = source.durationMs, clips = clips)
+                val created = drafts.create(initial)
+                mutableHasDraft.value = true
+                mutableSaveStatus.value = "Сохранено"
+                mutableState.value = created
+                resetHistory()
+                playback.load(state.value)
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { mutableState.value = EditorUiState(message = e.localizedMessage ?: "Не удалось открыть видео") }
+        }
+    }
+
+    private suspend fun readSource(uri: Uri): VideoSource = withContext(Dispatchers.IO) {
                     MediaMetadataRetriever().use { reader ->
                         reader.setDataSource(getApplication(), uri)
                         fun meta(key: Int) = reader.extractMetadata(key)?.toLongOrNull() ?: 0L
@@ -150,17 +173,6 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                         require(duration > 0 && width > 0 && height > 0) { "Не удалось прочитать видео" }
                         VideoSource(uri, duration, width, height)
                     }
-                }
-                val initial = EditorUiState(source = source, endMs = source.durationMs)
-                val created = drafts.create(initial)
-                mutableHasDraft.value = true
-                mutableSaveStatus.value = "Сохранено"
-                mutableState.value = created
-                resetHistory()
-                playback.load(state.value)
-            } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { mutableState.value = EditorUiState(message = e.localizedMessage ?: "Не удалось открыть видео") }
-        }
     }
     fun trim(start: Long, end: Long) {
         val s = state.value
@@ -168,7 +180,8 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         if (s.exporting || draftBusy.value) return
         val gap = minOf(100L, source.durationMs)
         val a = start.coerceIn(0, source.durationMs - gap)
-        val next = s.copy(startMs = a, endMs = end.coerceIn(a + gap, source.durationMs), message = null)
+        val clip = s.timelineClips()[s.selectedClipIndex.coerceIn(0, s.timelineClips().lastIndex)]
+        val next = s.withActiveClip(clip.copy(startMs = a, endMs = end.coerceIn(a + gap, source.durationMs))).copy(message = null)
         record(next, "trim")
         mutableState.value = next
         scheduleSave()
@@ -176,7 +189,9 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     fun applyTrim() { finishEdit(); playback.load(state.value) }
     fun crop(crop: CropParameters) {
         if (state.value.exporting || draftBusy.value) return
-        val next = state.value.copy(crop = crop.normalized(), message = null)
+        val current = state.value
+        val clip = current.timelineClips()[current.selectedClipIndex.coerceIn(0, current.timelineClips().lastIndex)]
+        val next = current.withActiveClip(clip.copy(crop = crop.normalized())).copy(message = null)
         record(next, "crop")
         mutableState.value = next
         scheduleSave()
@@ -192,6 +207,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             if (mutableSaveStatus.value != "Сохранено") {
                 mutableState.update { it.copy(message = "Не удалось сохранить правки. Повторите сохранение перед выходом.") }
             } else {
+                drafts.prune(state.value)
                 playback.clear()
                 refreshProjects()
                 mutableState.value = EditorUiState()
@@ -262,8 +278,70 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         val current = state.value.activeText()
         text(current.copy(x = current.x + dx, y = current.y + dy))
     }
+    fun selectClip(index: Int) {
+        if (draftBusy.value || state.value.exporting || state.value.clips.isEmpty()) return
+        finishEdit()
+        mutableState.value = state.value.withSelectedClip(index)
+        playback.load(state.value)
+        scheduleSave()
+    }
+    fun addClips(uris: List<Uri>) {
+        val current = state.value
+        if (uris.isEmpty() || draftBusy.value || current.exporting || current.projectId == null) return
+        val existing = current.timelineClips()
+        val accepted = uris.take((10 - existing.size).coerceAtLeast(0))
+        if (accepted.isEmpty()) { mutableState.update { it.copy(message = "В одном проекте может быть до 10 клипов") }; return }
+        finishEdit(); playback.pause(); mutableDraftBusy.value = true
+        viewModelScope.launch {
+            try {
+                val added = accepted.map { VideoClip(java.util.UUID.randomUUID().toString(), readSource(it)) }
+                val next = current.copy(clips = existing + added, selectedClipIndex = existing.size).withSelectedClip(existing.size)
+                val stored = drafts.saveAndLoad(next)
+                record(stored, "addClip")
+                mutableState.value = stored
+                finishEdit(); mutableSaveStatus.value = "Сохранено"; playback.load(stored)
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { mutableState.update { it.copy(message = "Не удалось добавить клип: ${e.localizedMessage}") } }
+            finally { mutableDraftBusy.value = false }
+        }
+    }
+    fun removeSelectedClip() {
+        val current = state.value
+        val clips = current.timelineClips()
+        if (draftBusy.value || current.exporting || clips.size <= 1) return
+        finishEdit()
+        val selected = current.selectedClipIndex.coerceIn(0, clips.lastIndex)
+        val remaining = clips.filterIndexed { index, _ -> index != selected }
+        val next = current.copy(clips = remaining, selectedClipIndex = selected.coerceAtMost(remaining.lastIndex))
+            .withSelectedClip(selected.coerceAtMost(remaining.lastIndex))
+        record(next, "removeClip"); mutableState.value = next; finishEdit(); playback.load(next); scheduleSave(0)
+    }
+    fun duplicateSelectedClip() {
+        val current = state.value
+        val clips = current.timelineClips().toMutableList()
+        if (draftBusy.value || current.exporting || clips.size >= 10) return
+        val selected = current.selectedClipIndex.coerceIn(0, clips.lastIndex)
+        finishEdit()
+        clips.add(selected + 1, clips[selected].copy(id = java.util.UUID.randomUUID().toString()))
+        val next = current.copy(clips = clips, selectedClipIndex = selected + 1).withSelectedClip(selected + 1)
+        record(next, "duplicateClip"); mutableState.value = next; finishEdit(); playback.load(next); scheduleSave()
+    }
+    fun moveSelectedClip(offset: Int) {
+        val current = state.value
+        val clips = current.timelineClips().toMutableList()
+        val from = current.selectedClipIndex.coerceIn(0, clips.lastIndex)
+        val to = (from + offset).coerceIn(0, clips.lastIndex)
+        if (draftBusy.value || current.exporting || from == to) return
+        finishEdit(); val moved = clips.removeAt(from); clips.add(to, moved)
+        val next = current.copy(clips = clips, selectedClipIndex = to).withSelectedClip(to)
+        record(next, "moveClip"); mutableState.value = next; finishEdit(); playback.load(next); scheduleSave()
+    }
     fun export() {
         if (state.value.source == null || state.value.exporting || draftBusy.value) return
+        if (state.value.timelineClips().size > 1) {
+            mutableState.update { it.copy(message = "Общий экспорт нескольких клипов будет добавлен на следующем этапе") }
+            return
+        }
         playback.pause()
         playback.stopForExport()
         val snapshot = state.value

@@ -44,24 +44,36 @@ class ProjectStore(private val context: Context) {
         mutex.withLock {
             val id = UUID.randomUUID().toString()
             try {
-                val owned = store(id).save(initial)
+                val draft = store(id)
+                draft.save(initial)
                 writeTitle(id, initial.projectName)
+                val owned = draft.load().copy(projectId = id, projectName = initial.projectName)
                 // A missing/unsupported thumbnail must not prevent editing the video.
                 runCatching {
                     MediaMetadataRetriever().use { reader ->
-                        reader.setDataSource(context, owned.uri)
+                        reader.setDataSource(context, requireNotNull(owned.source).uri)
                         reader.getScaledFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 160, 160)?.let { frame ->
                             try { File(folder(id), "cover.jpg").outputStream().use { frame.compress(Bitmap.CompressFormat.JPEG, 80, it) } }
                             finally { frame.recycle() }
                         }
                     }
                 }
-                initial.copy(projectId = id, source = owned)
+                owned
             } catch (error: Throwable) { folder(id).deleteRecursively(); throw error }
         }
     }
     suspend fun save(state: EditorUiState) = withContext(Dispatchers.IO) {
         mutex.withLock { store(requireNotNull(state.projectId)).save(state) }
+    }
+    suspend fun saveAndLoad(state: EditorUiState): EditorUiState = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val id = requireNotNull(state.projectId)
+            store(id).save(state)
+            store(id).load().copy(projectId = id, projectName = title(id))
+        }
+    }
+    suspend fun prune(state: EditorUiState) = withContext(Dispatchers.IO) {
+        mutex.withLock { store(requireNotNull(state.projectId)).prune(state) }
     }
     suspend fun importMusic(id: String, uri: Uri): AudioParameters = withContext(Dispatchers.IO) {
         mutex.withLock {

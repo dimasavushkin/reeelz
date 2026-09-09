@@ -35,7 +35,7 @@ fun ProjectsHome(projects: List<ProjectSummary>, busy: Boolean, create: () -> Un
     var info by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF17222D), Ink, Ink), endY = 950f))) {
         Box(Modifier.align(Alignment.TopEnd).offset(x = 100.dp, y = (-70).dp).size(280.dp)
-            .background(Brush.radialGradient(listOf(LavenderStrong.copy(alpha = .18f), Color.Transparent)), RoundedCornerShape(140.dp)))
+            .background(Brush.radialGradient(listOf(AccentGlow.copy(alpha = .13f), Color.Transparent)), RoundedCornerShape(140.dp)))
         Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 22.dp, vertical = 20.dp),
             verticalArrangement = Arrangement.spacedBy(22.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -53,15 +53,15 @@ fun ProjectsHome(projects: List<ProjectSummary>, busy: Boolean, create: () -> Un
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("Быстро", style = MaterialTheme.typography.headlineLarge)
                 Text("Эстетично", style = MaterialTheme.typography.headlineLarge)
-                Text("Бесплатно", style = MaterialTheme.typography.headlineLarge, color = Lavender)
+                Text("Бесплатно", style = MaterialTheme.typography.headlineLarge, color = Accent)
             }
             Button(onClick = create, enabled = !busy, modifier = Modifier.fillMaxWidth().height(58.dp),
-                shape = RoundedCornerShape(20.dp), colors = ButtonDefaults.buttonColors(containerColor = Lavender, contentColor = Color(0xFF17101F))) {
+                shape = RoundedCornerShape(20.dp), colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color(0xFF0B0D10))) {
                 Text("＋", style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.width(7.dp))
                 Text("Новый ролик", style = MaterialTheme.typography.titleMedium)
             }
-            if (busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Lavender, trackColor = Divider)
+            if (busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Accent, trackColor = Divider)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("Мои проекты", style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.weight(1f))
@@ -129,7 +129,7 @@ private fun ProjectCard(project: ProjectSummary, enabled: Boolean, open: () -> U
 private fun EmptyProjects(modifier: Modifier = Modifier) {
     Surface(modifier.fillMaxWidth(), color = Color.White.copy(alpha = .045f), shape = RoundedCornerShape(24.dp)) {
         Column(Modifier.padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("＋", color = Lavender, style = MaterialTheme.typography.headlineLarge)
+            Text("＋", color = Accent, style = MaterialTheme.typography.headlineLarge)
             Text("Здесь появятся ваши ролики", style = MaterialTheme.typography.titleMedium)
             Text("Выберите видео — проект сохранится автоматически", color = Muted, style = MaterialTheme.typography.bodyMedium)
         }

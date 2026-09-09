@@ -10,6 +10,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -23,7 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import com.reeelz.ui.theme.Divider
 import com.reeelz.ui.theme.Ink
-import com.reeelz.ui.theme.Lavender
+import com.reeelz.ui.theme.Accent
 import com.reeelz.ui.theme.Muted
 import com.reeelz.ui.theme.SurfaceRaised
 import androidx.compose.ui.viewinterop.AndroidView
@@ -40,6 +43,9 @@ fun EditorScreen(vm: EditorViewModel, state: EditorUiState, playing: Boolean, bu
     val history by vm.historyAvailability.collectAsState()
     val exportedVideo by vm.exportedVideo.collectAsState()
     val position by vm.playback.positionMs.collectAsState()
+    val clipPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { uris ->
+        vm.addClips(uris)
+    }
     BoxWithConstraints(Modifier.fillMaxSize().background(Ink).safeDrawingPadding()) {
         val previewWidth = minOf(maxWidth - 40.dp, 310.dp, maxHeight * .46f * 9f / 16f)
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -50,7 +56,7 @@ fun EditorScreen(vm: EditorViewModel, state: EditorUiState, playing: Boolean, bu
                 EditorIconButton("↷", "Повторить", enabled && history.second, vm::redo)
                 Spacer(Modifier.width(8.dp))
                 Button(onClick = { focus.clearFocus(); vm.export() }, enabled = enabled,
-                    shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = Lavender),
+                    shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = Accent),
                     contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp)) { Text("Экспорт") }
             }
             Text(saveStatus, color = Muted, style = MaterialTheme.typography.labelSmall)
@@ -77,7 +83,7 @@ fun EditorScreen(vm: EditorViewModel, state: EditorUiState, playing: Boolean, bu
                 Text("⌗", color = Muted, style = MaterialTheme.typography.titleLarge)
             }
             if (state.exporting) {
-                LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 18.dp), color = Lavender, trackColor = Divider)
+                LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 18.dp), color = Accent, trackColor = Divider)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Экспорт ${state.progress}%")
                     TextButton(onClick = vm::cancelExport) { Text("Отменить") }
@@ -85,7 +91,10 @@ fun EditorScreen(vm: EditorViewModel, state: EditorUiState, playing: Boolean, bu
             }
             Surface(Modifier.fillMaxWidth().weight(1f), color = SurfaceRaised, shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)) {
                 Column {
-                TabRow(selectedTabIndex = tab, containerColor = Color.Transparent, contentColor = Lavender, divider = {}) {
+                ClipStrip(state.timelineClips(), state.selectedClipIndex, enabled, vm::selectClip,
+                    { clipPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) },
+                    vm::moveSelectedClip, vm::duplicateSelectedClip, vm::removeSelectedClip)
+                TabRow(selectedTabIndex = tab, containerColor = Color.Transparent, contentColor = Accent, divider = {}) {
                     listOf("✂\nОбрезка", "▣\nКадр", "T\nТекст", "♫\nЗвук").forEachIndexed { index, label ->
                         Tab(selected = tab == index, onClick = { focus.clearFocus(); vm.finishEdit(); tab = index },
                             text = { Text(label, textAlign = androidx.compose.ui.text.style.TextAlign.Center, style = MaterialTheme.typography.labelLarge) })

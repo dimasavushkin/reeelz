@@ -16,6 +16,13 @@ data class CropParameters(
     )
 }
 data class VideoSource(val uri: Uri, val durationMs: Long, val width: Int, val height: Int)
+data class VideoClip(
+    val id: String,
+    val source: VideoSource,
+    val startMs: Long = 0,
+    val endMs: Long = source.durationMs,
+    val crop: CropParameters = CropParameters(),
+)
 data class EditorUiState(
     val projectId: String? = null,
     val projectName: String = "Новый ролик",
@@ -23,6 +30,8 @@ data class EditorUiState(
     val startMs: Long = 0,
     val endMs: Long = 0,
     val crop: CropParameters = CropParameters(),
+    val clips: List<VideoClip> = emptyList(),
+    val selectedClipIndex: Int = 0,
     val text: TextParameters = TextParameters(),
     val extraTexts: List<TextParameters> = emptyList(),
     val selectedText: Int = 0,
@@ -35,6 +44,24 @@ data class EditorUiState(
 
 fun EditorUiState.allTexts() = listOf(text) + extraTexts
 fun EditorUiState.activeText() = allTexts().getOrElse(selectedText) { text }
+
+fun EditorUiState.timelineClips(): List<VideoClip> = if (clips.isNotEmpty()) clips else {
+    source?.let { listOf(VideoClip("legacy", it, startMs, endMs, crop)) }.orEmpty()
+}
+
+fun EditorUiState.withSelectedClip(index: Int): EditorUiState {
+    if (clips.isEmpty()) return this
+    val selected = index.coerceIn(0, clips.lastIndex)
+    val clip = clips[selected]
+    return copy(selectedClipIndex = selected, source = clip.source, startMs = clip.startMs, endMs = clip.endMs, crop = clip.crop)
+}
+
+fun EditorUiState.withActiveClip(updated: VideoClip): EditorUiState {
+    if (clips.isEmpty()) return copy(source = updated.source, startMs = updated.startMs, endMs = updated.endMs, crop = updated.crop)
+    val selected = selectedClipIndex.coerceIn(0, clips.lastIndex)
+    return copy(clips = clips.mapIndexed { index, clip -> if (index == selected) updated else clip },
+        source = updated.source, startMs = updated.startMs, endMs = updated.endMs, crop = updated.crop)
+}
 
 data class CropBounds(val left: Float, val right: Float, val bottom: Float, val top: Float)
 

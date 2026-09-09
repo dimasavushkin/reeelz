@@ -64,8 +64,8 @@ class MainActivity : ComponentActivity() {
                 val saveStatus by vm.saveStatus.collectAsStateWithLifecycle()
 
                 val playing by vm.playback.isPlaying.collectAsStateWithLifecycle()
-                val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-                    uri?.let(vm::open)
+                val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { uris ->
+                    if (uris.isNotEmpty()) vm.open(uris)
                 }
                 val owner = LocalLifecycleOwner.current
                 DisposableEffect(owner, vm) {

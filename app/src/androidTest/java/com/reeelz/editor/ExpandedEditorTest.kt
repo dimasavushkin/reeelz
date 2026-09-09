@@ -16,6 +16,40 @@ import java.util.UUID
 
 @UnstableApi
 class ExpandedEditorTest {
+    @Test fun multipleClipsKeepIndependentParametersAndOrder() = runBlocking<Unit> {
+        val app = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(app.cacheDir, "multi-clip-test-${UUID.randomUUID()}").apply { mkdirs() }
+        val context = object : ContextWrapper(app) { override fun getFilesDir() = root }
+        try {
+            val firstFile = File(root, "first.mp4").also { MediaFixtures.video(it, 2) }
+            val secondFile = File(root, "second.mp4").also { MediaFixtures.video(it, 3) }
+            val first = VideoClip("first", VideoSource(Uri.fromFile(firstFile), 2000, 320, 240), 100, 1600,
+                CropParameters(1.4f, .2f, 0f, 90))
+            val second = VideoClip("second", VideoSource(Uri.fromFile(secondFile), 3000, 320, 240), 500, 2800,
+                CropParameters(2f, -.3f, .4f, 180))
+            val projects = ProjectStore(context)
+            val created = projects.create(EditorUiState(source = first.source, startMs = first.startMs, endMs = first.endMs,
+                crop = first.crop, clips = listOf(first, second)))
+            assertEquals(listOf("first", "second"), created.clips.map { it.id })
+            assertEquals(first.copy(source = created.clips[0].source), created.clips[0])
+            assertEquals(second.copy(source = created.clips[1].source), created.clips[1])
+            assertNotEquals(firstFile, File(requireNotNull(created.clips[0].source.uri.path)))
+            val reordered = created.copy(clips = created.clips.reversed(), selectedClipIndex = 0).withSelectedClip(0)
+            val reopened = projects.saveAndLoad(reordered)
+            assertEquals(listOf("second", "first"), reopened.clips.map { it.id })
+            assertEquals(500L, reopened.startMs)
+            assertEquals(180, reopened.crop.rotation)
+            val one = projects.saveAndLoad(reopened.copy(clips = reopened.clips.take(1)).withSelectedClip(0))
+            assertEquals(1, one.clips.size)
+            val projectFolder = File(root, "projects/${one.projectId}")
+            assertEquals(2, projectFolder.listFiles()!!.count { it.extension == "video" })
+            projects.prune(one)
+            assertEquals(1, projectFolder.listFiles()!!.count { it.extension == "video" })
+            assertTrue(firstFile.exists())
+            assertTrue(secondFile.exists())
+        } finally { root.deleteRecursively() }
+    }
+
     @Test fun recoveryDeletesOnlyPendingExportAndOwnTemporaryFile() = runBlocking<Unit> {
         val app = InstrumentationRegistry.getInstrumentation().targetContext
         val root = File(app.cacheDir, "recovery-test-${UUID.randomUUID()}").apply { mkdirs() }

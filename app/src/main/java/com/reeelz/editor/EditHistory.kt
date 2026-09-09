@@ -1,7 +1,8 @@
 package com.reeelz.editor
 
 data class EditValues(val startMs: Long, val endMs: Long, val crop: CropParameters, val text: TextParameters,
-                      val extraTexts: List<TextParameters> = emptyList(), val audio: AudioParameters = AudioParameters())
+                      val extraTexts: List<TextParameters> = emptyList(), val audio: AudioParameters = AudioParameters(),
+                      val clips: List<VideoClip> = emptyList(), val selectedClipIndex: Int = 0)
 
 /** In-memory history of parameters only; video and export state are never copied. */
 class EditHistory(private val limit: Int = 50) {

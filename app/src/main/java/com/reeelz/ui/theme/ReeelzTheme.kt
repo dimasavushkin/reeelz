@@ -15,8 +15,8 @@ import com.reeelz.R
 val Ink = Color(0xFF080A0E)
 val Surface = Color(0xFF11141A)
 val SurfaceRaised = Color(0xFF191D25)
-val Lavender = Color(0xFFD6BCFF)
-val LavenderStrong = Color(0xFFB98CFF)
+val Accent = Color.White
+val AccentGlow = Color.White
 val Muted = Color(0xFF9298A6)
 val Divider = Color(0xFF2A2F39)
 
@@ -27,10 +27,10 @@ private val GoogleSans = FontFamily(
 )
 
 private val Colors = darkColorScheme(
-    primary = Lavender,
-    onPrimary = Color(0xFF1A1027),
-    primaryContainer = Color(0xFF3A2853),
-    onPrimaryContainer = Color(0xFFE9D9FF),
+    primary = Accent,
+    onPrimary = Color(0xFF0B0D10),
+    primaryContainer = Color(0xFF292D34),
+    onPrimaryContainer = Color.White,
     background = Ink,
     onBackground = Color(0xFFF5F2F8),
     surface = Surface,
