@@ -91,54 +91,56 @@ fun EditorScreen(vm: EditorViewModel, state: EditorUiState, playing: Boolean, bu
                 }
             }
             Surface(Modifier.fillMaxWidth().weight(1f), color = SurfaceRaised, shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)) {
-                Column {
-                ClipStrip(state.timelineClips(), state.selectedClipIndex, position, enabled, vm::selectClip,
-                    vm.playback::seekTimeline, vm::splitAt,
-                    { clipPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) },
-                    vm::moveSelectedClip, vm::duplicateSelectedClip, vm::removeSelectedClip)
-                TabRow(selectedTabIndex = tab, containerColor = Color.Transparent, contentColor = Accent, divider = {}) {
-                    listOf("✂\nОбрезка", "▣\nКадр", "T\nТекст", "♫\nЗвук").forEachIndexed { index, label ->
-                        Tab(selected = tab == index, onClick = { focus.clearFocus(); vm.finishEdit(); tab = index },
-                            text = { Text(label, textAlign = androidx.compose.ui.text.style.TextAlign.Center, style = MaterialTheme.typography.labelLarge) })
-                    }
-                }
-                key(tab) {
-                Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    when (tab) {
-                        0 -> {
-                            TrimControls(state, sourcePosition, enabled, vm.playback::seek, vm::trim, vm::applyTrim)
+                Column(Modifier.fillMaxSize()) {
+                    TabRow(selectedTabIndex = tab, containerColor = Color.Transparent, contentColor = Accent, divider = {}) {
+                        listOf("✂\nОбрезка", "▣\nКадр", "T\nТекст", "♫\nЗвук").forEachIndexed { index, label ->
+                            Tab(selected = tab == index, onClick = { focus.clearFocus(); vm.finishEdit(); tab = index },
+                                text = { Text(label, textAlign = androidx.compose.ui.text.style.TextAlign.Center, style = MaterialTheme.typography.labelLarge) })
                         }
-                        1 -> {
-                            Text("Разведите пальцы для масштаба, перетащите видео для позиции.",
-                                color = Muted, style = MaterialTheme.typography.bodySmall)
-                            Text("Масштаб · %.2f×".format(state.crop.zoom))
-                            Slider(state.crop.zoom, { vm.crop(state.crop.copy(zoom = it)) }, valueRange = 1f..4f, enabled = enabled, onValueChangeFinished = vm::finishEdit)
-                            Text("По горизонтали")
-                            Slider(state.crop.x, { vm.crop(state.crop.copy(x = it)) }, valueRange = -1f..1f, enabled = enabled, onValueChangeFinished = vm::finishEdit)
-                            Text("По вертикали")
-                            Slider(state.crop.y, { vm.crop(state.crop.copy(y = it)) }, valueRange = -1f..1f, enabled = enabled, onValueChangeFinished = vm::finishEdit)
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(onClick = { vm.finishEdit(); vm.crop(CropParameters()); vm.finishEdit() },
-                                    enabled = enabled, modifier = Modifier.weight(1f)) { Text("↶  Сброс") }
-                                OutlinedButton(onClick = {
-                                    vm.finishEdit(); vm.crop(state.crop.copy(rotation = state.crop.rotation + 90)); vm.finishEdit()
-                                }, enabled = enabled, modifier = Modifier.weight(1f)) { Text("↻  Повернуть") }
+                    }
+                    key(tab) {
+                    Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()),
+                        horizontalAlignment = Alignment.CenterHorizontally) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            when (tab) {
+                                0 -> TrimControls(state, sourcePosition, enabled, vm.playback::seek, vm::trim, vm::applyTrim)
+                                1 -> {
+                                    Text("Разведите пальцы для масштаба, перетащите видео для позиции.",
+                                        color = Muted, style = MaterialTheme.typography.bodySmall)
+                                    Text("Масштаб · %.2f×".format(state.crop.zoom))
+                                    Slider(state.crop.zoom, { vm.crop(state.crop.copy(zoom = it)) }, valueRange = 1f..4f, enabled = enabled, onValueChangeFinished = vm::finishEdit)
+                                    Text("По горизонтали")
+                                    Slider(state.crop.x, { vm.crop(state.crop.copy(x = it)) }, valueRange = -1f..1f, enabled = enabled, onValueChangeFinished = vm::finishEdit)
+                                    Text("По вертикали")
+                                    Slider(state.crop.y, { vm.crop(state.crop.copy(y = it)) }, valueRange = -1f..1f, enabled = enabled, onValueChangeFinished = vm::finishEdit)
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        OutlinedButton(onClick = { vm.finishEdit(); vm.crop(CropParameters()); vm.finishEdit() },
+                                            enabled = enabled, modifier = Modifier.weight(1f)) { Text("↶  Сброс") }
+                                        OutlinedButton(onClick = {
+                                            vm.finishEdit(); vm.crop(state.crop.copy(rotation = state.crop.rotation + 90)); vm.finishEdit()
+                                        }, enabled = enabled, modifier = Modifier.weight(1f)) { Text("↻  Повернуть") }
+                                    }
+                                    Button(onClick = { vm.finishEdit(); tab = 0 }, enabled = enabled,
+                                        modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) { Text("✓  Готово") }
+                                }
+                                2 -> CaptionControls(vm, state, enabled)
+                                3 -> AudioControls(vm, state, enabled)
                             }
-                            Button(onClick = { vm.finishEdit(); tab = 0 }, enabled = enabled,
-                                modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) { Text("✓  Готово") }
+                            if (saveStatus.startsWith("Не удалось")) {
+                                OutlinedButton(onClick = vm::saveDraft, enabled = enabled) { Text("Повторить сохранение") }
+                            }
+                            if (exportedVideo != null) {
+                                TextButton(onClick = vm::showExportResult, enabled = enabled) { Text("Последний экспорт · посмотреть / поделиться") }
+                            }
                         }
-                        2 -> CaptionControls(vm, state, enabled)
-                        3 -> AudioControls(vm, state, enabled)
+                        HorizontalDivider(color = Divider)
+                        ClipStrip(state.timelineClips(), state.selectedClipIndex, position, enabled, vm::selectClip,
+                            vm.playback::seekTimeline, vm::splitAt,
+                            { clipPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) },
+                            vm::moveSelectedClip, vm::duplicateSelectedClip, vm::removeSelectedClip)
                     }
-                    if (saveStatus.startsWith("Не удалось")) {
-                        OutlinedButton(onClick = vm::saveDraft, enabled = enabled) { Text("Повторить сохранение") }
                     }
-                    if (exportedVideo != null) {
-                        TextButton(onClick = vm::showExportResult, enabled = enabled) { Text("Последний экспорт · посмотреть / поделиться") }
-                    }
-                }
-                }
                 }
             }
         }
